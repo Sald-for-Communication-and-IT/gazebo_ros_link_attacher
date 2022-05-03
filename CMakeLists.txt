@@ -22,6 +22,7 @@ find_package(catkin REQUIRED COMPONENTS
   gazebo_ros
   std_msgs
   message_generation
+  geometry_msgs
 )
 
 # Depend on system install of Gazebo
@@ -37,6 +38,7 @@ add_service_files(
 generate_messages(
   DEPENDENCIES
   std_msgs
+  geometry_msgs
 )
 
 ###################################
