@@ -46,7 +46,7 @@ namespace gazebo
   }
 
   bool GazeboRosLinkAttacher::attach(std::string model1, std::string link1,
-                                     std::string model2, std::string link2)
+                                     std::string model2, std::string link2, geometry_msgs::Point offset)
   {
 
     // look for any previous instance of the joint first.
@@ -56,6 +56,10 @@ namespace gazebo
     fixedJoint j;
     if(this->getJoint(model1, link1, model2, link2, j)){
         ROS_INFO_STREAM("Joint already existed, reusing it.");
+        if(!this->alignLinks(j.model2+"::"+j.link2, j.model1+"::"+j.link1, 
+                             ignition::math::Pose3d(offset.x, offset.y, offset.z, 0, 0, 0))){
+          return false;
+        }
         j.joint->Attach(j.l1, j.l2);
         return true;
     }
@@ -66,6 +70,12 @@ namespace gazebo
     j.link1 = link1;
     j.model2 = model2;
     j.link2 = link2;
+    j.offset = ignition::math::Pose3d(offset.x, offset.y, offset.z, 0.0, 0.0, 0.0);
+
+    if(!this->alignLinks(j.model2+"::"+j.link2, j.model1+"::"+j.link1, j.offset)){
+      return false;
+    }
+
     ROS_DEBUG_STREAM("Getting BasePtr of " << model1);
     physics::BasePtr b1 = this->world->ModelByName(model1);
 
@@ -149,16 +159,22 @@ namespace gazebo
   }
 
   bool GazeboRosLinkAttacher::detach(std::string model1, std::string link1,
-                                     std::string model2, std::string link2)
+                                     std::string model2, std::string link2, geometry_msgs::Point offset)
   {
       // search for the instance of joint and do detach
       fixedJoint j;
       if(this->getJoint(model1, link1, model2, link2, j)){
+        {
           boost::recursive_mutex::scoped_lock lock(*this->physics_mutex);
           j.joint->Detach();
-          return true;
+        }
+       if(this->alignLinks(j.model2+"::"+j.link2, j.model1+"::"+j.link1, 
+                           ignition::math::Pose3d(offset.x, offset.y, offset.z, 0, 0, 0)))
+        {
+            return true;
+        }
       }
-
+  
     return false;
   }
 
@@ -185,7 +201,7 @@ namespace gazebo
                     << "' using link: '" << req.link_name_1 << "' with model: '"
                     << req.model_name_2 << "' using link: '" <<  req.link_name_2 << "'");
     if (! this->attach(req.model_name_1, req.link_name_1,
-                       req.model_name_2, req.link_name_2)){
+                       req.model_name_2, req.link_name_2, req.offset)){
       ROS_ERROR_STREAM("Could not make the attach.");
       res.ok = false;
     }
@@ -203,7 +219,7 @@ namespace gazebo
                       << "' using link: '" << req.link_name_1 << "' with model: '"
                       << req.model_name_2 << "' using link: '" <<  req.link_name_2 << "'");
       if (! this->detach(req.model_name_1, req.link_name_1,
-                         req.model_name_2, req.link_name_2)){
+                         req.model_name_2, req.link_name_2, req.offset)){
         ROS_ERROR_STREAM("Could not make the detach.");
         res.ok = false;
       }
@@ -212,6 +228,66 @@ namespace gazebo
         res.ok = true;
       }
       return true;
+  }
+
+  bool GazeboRosLinkAttacher::alignLinks(std::string child_link, std::string parent_link, ignition::math::Pose3d pose)
+  { 
+    ROS_INFO("Starting link alignment!");
+
+    gazebo::physics::LinkPtr body = boost::dynamic_pointer_cast<gazebo::physics::Link>(this->world->EntityByName(child_link));
+    gazebo::physics::LinkPtr frame = boost::dynamic_pointer_cast<gazebo::physics::Link>(this->world->EntityByName(parent_link));
+    
+    if (!body)
+    {
+      ROS_ERROR("Updating LinkState: link [%s] does not exist", child_link.c_str());
+      return false;
+    }
+    
+    ignition::math::Vector3d target_pos = pose.Pos();
+    ignition::math::Quaterniond target_rot = pose.Rot();
+    ignition::math::Pose3d target_pose(target_pos,target_rot);
+    ignition::math::Vector3d target_linear_vel(0,0,0);
+    ignition::math::Vector3d target_angular_vel(0,0,0);
+
+    if (frame)
+    {
+  
+      ignition::math::Pose3d  frame_pose = frame->WorldPose(); // - myBody->GetCoMPose();
+      ignition::math::Vector3d frame_linear_vel = frame->WorldLinearVel();
+      // ignition::math::Vector3d frame_angular_vel = frame->WorldAngularVel();
+
+      ignition::math::Vector3d frame_pos = frame_pose.Pos();
+      ignition::math::Quaterniond frame_rot = frame_pose.Rot();
+
+      //std::cout << " debug : " << frame->GetName() << " : " << frame_pose << " : " << target_pose << std::endl;
+      target_pose = target_pose + frame_pose;
+
+      // target_linear_vel -= frame_linear_vel;
+      // target_angular_vel -= frame_angular_vel;
+    }
+    else if (parent_link == "" || parent_link == "world" || parent_link == "map" || parent_link == "/map")
+    {
+      ROS_INFO("Updating LinkState: reference_frame is empty/world/map, using inertial frame");
+    }
+    else
+    {
+      ROS_ERROR("Updating LinkState: reference_frame is not a valid entity name");
+      return false;
+    }
+
+    //std::cout << " debug : " << target_pose << std::endl;
+    //boost::recursive_mutex::scoped_lock lock(*world->GetMRMutex());
+
+    bool is_paused = this->world->IsPaused();
+    if (!is_paused) this->world->SetPaused(true);
+    body->SetWorldPose(target_pose);
+    this->world->SetPaused(is_paused);
+
+    // set body velocity to desired twist
+    // body->SetLinearVel(target_linear_vel);
+    // body->SetAngularVel(target_angular_vel);
+    ROS_INFO("Link alignment successful!");
+    return true;
   }
 
 }

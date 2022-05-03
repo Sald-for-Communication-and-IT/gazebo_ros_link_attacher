@@ -4,8 +4,8 @@
  * Date: 05/04/2016
  */
 
-#ifndef GAZEBO_ROS_LINK_ATTACHER_HH
-#define GAZEBO_ROS_LINK_ATTACHER_HH
+#ifndef GAZEBO_LINK_ATTACHER_INCLUDE_GAZEBO_ROS_LINK_ATTACHER
+#define GAZEBO_LINK_ATTACHER_INCLUDE_GAZEBO_ROS_LINK_ATTACHER
 
 #include <boost/thread/recursive_mutex.hpp>
 
@@ -24,6 +24,7 @@
 #include "gazebo_ros_link_attacher/Attach.h"
 #include "gazebo_ros_link_attacher/AttachRequest.h"
 #include "gazebo_ros_link_attacher/AttachResponse.h"
+#include "geometry_msgs/Point.h"
 
 namespace gazebo
 {
@@ -42,11 +43,13 @@ namespace gazebo
 
         /// \brief Attach with a revolute joint
         bool attach(std::string model1, std::string link1,
-                    std::string model2, std::string link2);
+                    std::string model2, std::string link2, geometry_msgs::Point offset);
 
         /// \brief Detach
         bool detach(std::string model1, std::string link1,
-                    std::string model2, std::string link2);
+                    std::string model2, std::string link2, geometry_msgs::Point offset);
+
+        bool alignLinks(std::string child_link, std::string parent_link, ignition::math::Pose3d pose);
 
         /// \brief Internal representation of a fixed joint
         struct fixedJoint{
@@ -59,6 +62,7 @@ namespace gazebo
             std::string link2;
             physics::LinkPtr l2;
             physics::JointPtr joint;
+            ignition::math::Pose3d offset;
         };
 
         bool getJoint(std::string model1, std::string link1, std::string model2, std::string link2, fixedJoint &joint);
@@ -87,5 +91,5 @@ namespace gazebo
 
 }
 
-#endif
+#endif /* GAZEBO_LINK_ATTACHER_INCLUDE_GAZEBO_ROS_LINK_ATTACHER */
 
